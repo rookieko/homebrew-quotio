@@ -1,0 +1,50 @@
+name: Update Quotio cask
+
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/update-quotio.yml
+      - scripts/**
+      - tests/**
+
+concurrency:
+  group: update-quotio
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.repository == 'rookieko/homebrew-quotio' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out main
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: main
+
+      - name: Test the updater
+        run: python3 -B -m unittest discover -s tests -v
+
+      - name: Check the latest stable release and verify the DMG
+        id: update
+        run: python3 -B scripts/update_quotio.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Commit and push the updated cask
+        if: steps.update.outputs.changed == 'true'
+        env:
+          QUOTIO_VERSION: ${{ steps.update.outputs.version }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- Casks/quotio.rb
+          git diff --cached --quiet && exit 0
+          git commit -m "Update Quotio to ${QUOTIO_VERSION}"
+          git push origin HEAD:main
